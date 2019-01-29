@@ -11,6 +11,8 @@ except:
     from urlparse import urlparse
     from urllib import unquote
 import os
+import tempfile
+import sys
 import pdfannotation
 import PyPDF2
 import warnings
@@ -20,7 +22,7 @@ global OVERWRITE_PDFS
 OVERWRITE_PDFS = False
 
 global PRESERVE_TREE
-PRESERVE_TREE = True
+PRESERVE_TREE = False
 
 
 def convert2datetime(s):
@@ -30,8 +32,10 @@ def converturl2abspath(url):
     """Convert a url string to an absolute path"""
     try:
         pth = unquote(urlparse(url).path) #this is necessary for filenames with unicode strings
+        print("Found %s"%pth)
     except:
         pth = unquote(str(urlparse(url).path)).decode("utf8") #this is necessary for filenames with unicode strings
+        print("Found UTF-8 encoded %s"%pth.encode("utf8"))
     return os.path.abspath(pth)
 
 def get_highlights_from_db(db, results={}):
@@ -151,7 +155,8 @@ def add_annotation2pdf(inpdf, outpdf, annotations):
 
 def processpdf(fn, fn_out, annotations):
     try:
-        inpdf = PyPDF2.PdfFileReader(open(fn, 'rb'), strict=False)
+        inpdf = PyPDF2.PdfFileReader(open(
+            fn.encode(sys.getfilesystemencoding()), 'rb'), strict=False)
         if inpdf.isEncrypted:
             # PyPDF2 seems to think some files are encrypted even
             # if they are not. We just ignore the encryption.
@@ -159,19 +164,24 @@ def processpdf(fn, fn_out, annotations):
             inpdf._override_encryption = True
             inpdf._flatten()
     except IOError:
-        print("Could not find pdffile %s"%fn)
+        print("Could not find pdffile %s"%fn.encode(sys.getfilesystemencoding()))
         return
     outpdf = PyPDF2.PdfFileWriter()
     outpdf = add_annotation2pdf(inpdf, outpdf, annotations)
-    if os.path.isfile(fn_out):
+    if os.path.isfile(fn_out.encode(sys.getfilesystemencoding())):
         if not OVERWRITE_PDFS:
-            print("%s exists skipping"%fn_out)
+            print("%s exists skipping"%fn_out.encode(sys.getfilesystemencoding()))
             return
         else:
-            print("overwriting %s"%fn_out)
+            print("overwriting %s"%fn_out.encode(sys.getfilesystemencoding()))
+            # use temporary file in order to avoid conflicts when overwriting original
+            tmp = tempfile.TemporaryFile(mode="w+b")
+            outpdf.write(tmp)
+            outpdf.cloneDocumentFromReader(
+                PyPDF2.PdfFileReader( tmp, strict = False ) )
     else:
-        print("writing pdf to %s"%fn_out)
-    outpdf.write(open(fn_out, "wb"))
+        print("writing pdf to %s"%fn_out.encode(sys.getfilesystemencoding()))
+    outpdf.write(open(fn_out.encode(sys.getfilesystemencoding()), "wb"))
 
 def mendeley2pdf(fn_db, dir_pdf):
     db = sqlite3.connect(fn_db)
@@ -184,12 +194,13 @@ def mendeley2pdf(fn_db, dir_pdf):
                 #  only works together with --overwrite:
                 #  overwrites, even if PDF in nested folder structure
                 fn_out = fn
+            print("Processing %s"%fn.encode(sys.getfilesystemencoding()))
             processpdf(fn, fn_out, annons)
         except PyPDF2.utils.PdfStreamError:
-            print("I appear to have run out of things to join together on %s."%fn)
+            print("I appear to have run out of things to join together on %s."%fn.encode(sys.getfilesystemencoding()))
             pass
         except PyPDF2.utils.PdfReadError:
-            print("I appear to have run out of things to read on %s."%fn)
+            print("I appear to have run out of things to read on %s."%fn.encode(sys.getfilesystemencoding()))
             pass
 if __name__ == "__main__":
     import argparse
@@ -210,4 +221,6 @@ if __name__ == "__main__":
         OVERWRITE_PDFS = True
     if args.preserve:
         PRESERVE_TREE = True
+    print("Mendeley database is expected to be encoded in UTF-8")
+    print("Filesystem is encoded as %s."%sys.getfilesystemencoding())
     mendeley2pdf(fn, dir_pdf)
