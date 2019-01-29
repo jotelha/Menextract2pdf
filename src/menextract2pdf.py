@@ -19,6 +19,10 @@ from dateutil import parser as dtparser
 global OVERWRITE_PDFS
 OVERWRITE_PDFS = False
 
+global PRESERVE_TREE
+PRESERVE_TREE = True
+
+
 def convert2datetime(s):
     return dtparser.parse(s)
 
@@ -174,14 +178,19 @@ def mendeley2pdf(fn_db, dir_pdf):
     highlights = get_highlights_from_db(db)
     annotations_all = get_notes_from_db(db, highlights)
     for fn, annons in annotations_all.items():
-		try:
-			processpdf(fn, os.path.join(dir_pdf, os.path.basename(fn)), annons)
-		except PyPDF2.utils.PdfStreamError:
-			print("I appear to have run out of things to join together on %s."%fn)
-			pass
-		except PyPDF2.utils.PdfReadError:
-			print("I appear to have run out of things to read on %s."%fn)
-			pass
+        try:
+            fn_out = os.path.join(dir_pdf, os.path.basename(fn))
+            if PRESERVE_TREE:
+                #  only works together with --overwrite:
+                #  overwrites, even if PDF in nested folder structure
+                fn_out = fn
+            processpdf(fn, fn_out, annons)
+        except PyPDF2.utils.PdfStreamError:
+            print("I appear to have run out of things to join together on %s."%fn)
+            pass
+        except PyPDF2.utils.PdfReadError:
+            print("I appear to have run out of things to read on %s."%fn)
+            pass
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -191,9 +200,14 @@ if __name__ == "__main__":
                         save the annotated pdfs""", type=str)
     parser.add_argument("-w", "--overwrite", help="""Overwrite any PDF files in
                         the destination directory""", action="store_true")
+    parser.add_argument("-p", "--preserve", help="""Preserves the original
+                        directory tree together with --overwrite""",
+                        action="store_true")
     args = parser.parse_args()
     fn = os.path.abspath(args.mendeleydb)
     dir_pdf = os.path.abspath(args.dest)
     if args.overwrite:
         OVERWRITE_PDFS = True
+    if args.preserve:
+        PRESERVE_TREE = True
     mendeley2pdf(fn, dir_pdf)
